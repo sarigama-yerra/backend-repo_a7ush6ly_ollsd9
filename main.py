@@ -1,8 +1,12 @@
 import os
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
+from typing import List, Optional
+from database import create_document, get_documents
+from schemas import MenuItem, Inquiry
 
-app = FastAPI()
+app = FastAPI(title="Flavor Factory API", description="Backend for Flavor Factory Restaurant website")
 
 app.add_middleware(
     CORSMiddleware,
@@ -14,11 +18,44 @@ app.add_middleware(
 
 @app.get("/")
 def read_root():
-    return {"message": "Hello from FastAPI Backend!"}
+    return {"message": "Flavor Factory backend is running"}
 
-@app.get("/api/hello")
-def hello():
-    return {"message": "Hello from the backend API!"}
+@app.get("/locations")
+def get_locations():
+    return {
+        "brand": "Flavor Factory",
+        "cities": [
+            {"city": "Lubumbashi", "country": "DR Congo"},
+            {"city": "Johannesburg", "country": "South Africa"},
+            {"city": "Ottawa", "country": "Canada"},
+        ]
+    }
+
+@app.get("/menu", response_model=List[MenuItem])
+def list_menu(category: Optional[str] = None, drive_thru_only: bool = False):
+    try:
+        filt = {}
+        if category:
+            filt["category"] = category
+        if drive_thru_only:
+            filt["is_drive_thru_friendly"] = True
+        docs = get_documents("menuitem", filt, limit=200)
+        # Convert Mongo documents to plain dicts with proper fields
+        items: List[MenuItem] = []
+        for d in docs:
+            d.pop("_id", None)
+            items.append(MenuItem(**d))
+        return items
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/inquiry")
+def create_inquiry(inquiry: Inquiry):
+    try:
+        _id = create_document("inquiry", inquiry)
+        return {"status": "ok", "id": _id}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/test")
 def test_database():
@@ -63,7 +100,6 @@ def test_database():
     response["database_name"] = "✅ Set" if os.getenv("DATABASE_NAME") else "❌ Not Set"
     
     return response
-
 
 if __name__ == "__main__":
     import uvicorn
